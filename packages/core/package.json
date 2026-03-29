@@ -1,0 +1,13 @@
+{
+  "name": "@multi-gcal/core",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./storage":  "./src/storage.js",
+    "./auth":     "./src/auth.js",
+    "./calendar": "./src/calendar.js"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0"
+  }
+}

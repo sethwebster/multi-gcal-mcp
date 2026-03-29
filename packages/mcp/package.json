@@ -1,0 +1,14 @@
+{
+  "name": "@multi-gcal/mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start":      "node src/index.js",
+    "start:http": "node src/index.js --http"
+  },
+  "dependencies": {
+    "@multi-gcal/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.10.1"
+  }
+}

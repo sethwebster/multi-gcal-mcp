@@ -1,0 +1,10 @@
+{
+  "name": "multi-gcal-root",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "mcp":      "bun run --cwd packages/mcp start",
+    "mcp:http": "bun run --cwd packages/mcp start:http",
+    "web":      "bun run --cwd packages/web start"
+  }
+}

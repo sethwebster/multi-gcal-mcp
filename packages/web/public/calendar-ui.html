@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Free/Busy Calendar</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a;
+    --border: #2e3350; --text: #e8eaf6; --dim: #7c83a8;
+    --hr: 64px; --accent: #4f8ef7;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Header */
+  header { display: flex; align-items: center; gap: 14px; padding: 12px 18px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; }
+  .logo { font-size: 1.05rem; font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .nav { display: flex; gap: 7px; }
+  .nav button { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 5px 11px; border-radius: 6px; cursor: pointer; font-size: .83rem; }
+  .nav button:hover { background: var(--border); }
+  .nav button.today { color: var(--accent); border-color: var(--accent); }
+  .wklabel { font-size: .9rem; font-weight: 600; min-width: 170px; }
+  .legend { display: flex; gap: 12px; margin-left: auto; flex-wrap: wrap; align-items: center; }
+  .leg { display: flex; align-items: center; gap: 5px; font-size: .78rem; color: var(--dim); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .rbtn { background: none; border: 1px solid var(--border); color: var(--dim); padding: 4px 9px; border-radius: 6px; cursor: pointer; font-size: .78rem; }
+  .rbtn:hover { color: var(--text); }
+  .rstatus { font-size: .73rem; color: var(--dim); white-space: nowrap; }
+
+  /* Grid */
+  .cal-wrap { flex: 1; overflow-y: auto; overflow-x: hidden; }
+  .grid { display: grid; grid-template-columns: 50px repeat(7, 1fr); min-width: 600px; }
+  .dh { position: sticky; top: 0; z-index: 10; grid-column: 1 / -1; display: grid; grid-template-columns: 50px repeat(7, 1fr); background: var(--surface); border-bottom: 1px solid var(--border); }
+  .dhc { padding: 8px 3px; text-align: center; font-size: .75rem; color: var(--dim); border-right: 1px solid var(--border); }
+  .dhc .dw { font-weight: 700; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
+  .dhc .dd { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; font-size: .95rem; font-weight: 600; margin-top: 2px; }
+  .dhc.today .dd { background: var(--accent); color: #fff; }
+  .dhc.today .dw { color: var(--accent); }
+  .tc { grid-column: 1; }
+  .tslot { height: var(--hr); display: flex; align-items: flex-start; justify-content: flex-end; padding: 3px 7px 0 0; font-size: .68rem; color: var(--dim); border-right: 1px solid var(--border); }
+  .dc { position: relative; border-right: 1px solid var(--border); }
+  .hl { position: absolute; left: 0; right: 0; height: 1px; background: var(--border); pointer-events: none; }
+  .hh { position: absolute; left: 0; right: 0; height: 1px; background: var(--surface2); pointer-events: none; }
+  .nl { position: absolute; left: -1px; right: 0; height: 2px; background: #f55; z-index: 5; pointer-events: none; }
+  .nl::before { content: ''; position: absolute; left: -3px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #f55; }
+  .ev { position: absolute; border-radius: 5px; padding: 3px 5px; font-size: .7rem; line-height: 1.3; overflow: hidden; cursor: pointer; z-index: 3; transition: filter .15s; }
+  .ev:hover { filter: brightness(1.15); }
+  .ev .et { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ev .em { opacity: .78; font-size: .65rem; }
+  .overlay { position: fixed; bottom: 16px; right: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 9px 14px; font-size: .8rem; color: var(--dim); z-index: 100; transition: opacity .3s; }
+  .overlay.hidden { opacity: 0; pointer-events: none; }
+  .overlay.err { border-color: #f55; color: #f99; }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">🗓 Free/Busy</span>
+  <div class="nav">
+    <button id="prevBtn">‹ Prev</button>
+    <button id="todayBtn" class="today">Today</button>
+    <button id="nextBtn">Next ›</button>
+  </div>
+  <span class="wklabel" id="weekLabel"></span>
+  <div class="legend" id="legend"></div>
+  <span class="rstatus" id="refreshStatus"></span>
+  <button class="rbtn" id="refreshBtn">↻</button>
+</header>
+<div class="cal-wrap"><div class="grid" id="grid"></div></div>
+<div class="overlay hidden" id="overlay"></div>
+
+<script>
+const DAY_START = 7, DAY_END = 22, HPX = 64, HOURS = DAY_END - DAY_START;
+const REFRESH_MS = 5 * 60 * 1000;
+const DOW   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const PALETTE = [
+  { bg: 'rgba(79,142,247,.82)',  b: '#4f8ef7' },
+  { bg: 'rgba(91,200,120,.82)',  b: '#5bc878' },
+  { bg: 'rgba(255,160,60,.82)',  b: '#ffa03c' },
+  { bg: 'rgba(200,100,220,.82)', b: '#c864dc' },
+  { bg: 'rgba(255,100,120,.82)', b: '#ff6478' },
+  { bg: 'rgba(60,200,210,.82)',  b: '#3cc8d2' },
+];
+
+let accounts = [], colors = {}, weekOff = 0, refreshTimer = null;
+
+// ── Utils ──────────────────────────────────────────────────────
+function weekStart(off = 0) {
+  const d = new Date(); d.setHours(0,0,0,0);
+  d.setDate(d.getDate() - d.getDay() + off * 7);
+  return d;
+}
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function iso(d) { return d.toISOString().slice(0, 10); }
+function fmtTime(d) {
+  const h = d.getHours(), m = d.getMinutes(), ap = h >= 12 ? 'PM' : 'AM';
+  return `${h % 12 || 12}${m ? ':' + String(m).padStart(2,'0') : ''} ${ap}`;
+}
+function toast(msg, err = false) {
+  const el = document.getElementById('overlay');
+  el.textContent = msg; el.className = 'overlay' + (err ? ' err' : '');
+  clearTimeout(toast._t);
+  if (!err) toast._t = setTimeout(() => el.classList.add('hidden'), 2200);
+}
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── Render helpers ────────────────────────────────────────────
+function assignColors(accts) {
+  colors = {};
+  accts.forEach((a, i) => { colors[a.id] = PALETTE[i % PALETTE.length]; });
+}
+
+function renderLegend() {
+  document.getElementById('legend').innerHTML = accounts.map(a => {
+    const c = colors[a.id] || PALETTE[0];
+    return `<div class="leg"><span class="dot" style="background:${c.b}"></span>${a.label}</div>`;
+  }).join('');
+}
+
+function renderWeekLabel(ws) {
+  const we = addDays(ws, 6);
+  const same = ws.getMonth() === we.getMonth();
+  document.getElementById('weekLabel').textContent = same
+    ? `${MONTHS[ws.getMonth()]} ${ws.getDate()}–${we.getDate()}, ${ws.getFullYear()}`
+    : `${MONTHS[ws.getMonth()]} ${ws.getDate()} – ${MONTHS[we.getMonth()]} ${we.getDate()}, ${we.getFullYear()}`;
+}
+
+function layoutDay(evs) {
+  evs.sort((a, b) => a.startDt - b.startDt);
+  const cols = [];
+  for (const ev of evs) {
+    let placed = false;
+    for (let c = 0; c < cols.length; c++) {
+      if (cols[c].endDt <= ev.startDt) { cols[c] = ev; ev._col = c; placed = true; break; }
+    }
+    if (!placed) { ev._col = cols.length; cols.push(ev); }
+  }
+  const tc = cols.length || 1;
+  for (const ev of evs) ev._tc = tc;
+  return evs;
+}
+
+function renderGrid(ws, events) {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const now = new Date();
+  const totalH = HOURS * HPX;
+
+  // Day header row
+  const dh = document.createElement('div'); dh.className = 'dh';
+  const corner = document.createElement('div'); corner.className = 'dhc'; corner.style.borderRight = '1px solid var(--border)'; dh.appendChild(corner);
+  for (let d = 0; d < 7; d++) {
+    const day = addDays(ws, d), isT = day.getTime() === today.getTime();
+    const cell = document.createElement('div'); cell.className = 'dhc' + (isT ? ' today' : '');
+    cell.innerHTML = `<div class="dw">${DOW[day.getDay()]}</div><div class="dd">${day.getDate()}</div>`;
+    dh.appendChild(cell);
+  }
+  grid.appendChild(dh);
+
+  // Time column
+  const tc = document.createElement('div'); tc.className = 'tc';
+  for (let h = 0; h < HOURS; h++) {
+    const s = document.createElement('div'); s.className = 'tslot';
+    const hr = DAY_START + h;
+    s.textContent = hr === 0 ? '12 AM' : hr < 12 ? `${hr} AM` : hr === 12 ? '12 PM' : `${hr - 12} PM`;
+    tc.appendChild(s);
+  }
+  grid.appendChild(tc);
+
+  // Group events by day
+  const byDay = Array.from({ length: 7 }, () => []);
+  for (const ev of events) {
+    if (ev.allDay) continue;
+    const sd = new Date(ev.start.dateTime || ev.start.date);
+    const ed = new Date(ev.end.dateTime   || ev.end.date);
+    const di = Math.floor((sd - ws) / 86400000);
+    if (di >= 0 && di < 7) byDay[di].push({ ...ev, startDt: sd, endDt: ed });
+  }
+
+  // Day columns
+  for (let d = 0; d < 7; d++) {
+    const day = addDays(ws, d), isT = day.getTime() === today.getTime();
+    const col = document.createElement('div'); col.className = 'dc'; col.style.height = totalH + 'px';
+
+    // Hour + half-hour lines
+    for (let h = 0; h <= HOURS; h++) {
+      const hl = document.createElement('div'); hl.className = 'hl'; hl.style.top = (h * HPX) + 'px'; col.appendChild(hl);
+      if (h < HOURS) { const hh = document.createElement('div'); hh.className = 'hh'; hh.style.top = (h * HPX + HPX / 2) + 'px'; col.appendChild(hh); }
+    }
+
+    // Current time line
+    if (isT) {
+      const p = (now.getHours() + now.getMinutes() / 60 - DAY_START) * HPX;
+      if (p >= 0 && p <= totalH) { const nl = document.createElement('div'); nl.className = 'nl'; nl.style.top = p + 'px'; col.appendChild(nl); }
+    }
+
+    // Events
+    for (const ev of layoutDay(byDay[d])) {
+      const sh = ev.startDt.getHours() + ev.startDt.getMinutes() / 60;
+      const eh = ev.endDt.getHours()   + ev.endDt.getMinutes()   / 60;
+      const cs = Math.max(sh, DAY_START), ce = Math.min(eh, DAY_END);
+      if (ce <= cs) continue;
+      const top = (cs - DAY_START) * HPX, height = Math.max((ce - cs) * HPX - 2, 18);
+      const c = colors[ev._account?.id] || PALETTE[0];
+      const cw = 1 / (ev._tc || 1), left = ev._col * cw * 100, width = cw * 100;
+      const el = document.createElement('div'); el.className = 'ev';
+      el.style.cssText = `top:${top}px;height:${height}px;left:calc(${left}% + 3px);width:calc(${width}% - 6px);background:${c.bg};border-left:3px solid ${c.b};color:#fff`;
+      el.innerHTML = `<div class="et">${ev.summary || '(No title)'}</div>` +
+        (height > 30 ? `<div class="em">${fmtTime(ev.startDt)}–${fmtTime(ev.endDt)}</div>` : '');
+      el.title = [ev.summary, `${fmtTime(ev.startDt)} – ${fmtTime(ev.endDt)}`, ev._account ? `📅 ${ev._account.label}` : '', ev.location ? `📍 ${ev.location}` : ''].filter(Boolean).join('\n');
+      if (ev.htmlLink) el.onclick = () => window.open(ev.htmlLink, '_blank');
+      col.appendChild(el);
+    }
+    grid.appendChild(col);
+  }
+}
+
+// ── Load ──────────────────────────────────────────────────────
+async function load(spinner = true) {
+  if (spinner) toast('Loading…');
+  try {
+    accounts = await api('/api/accounts');
+    assignColors(accounts); renderLegend();
+    const ws = weekStart(weekOff), we = addDays(ws, 6);
+    renderWeekLabel(ws);
+    const events = await api(`/api/events?start=${iso(ws)}T00:00:00&end=${iso(we)}T23:59:59`);
+    renderGrid(ws, events);
+    document.getElementById('refreshStatus').textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (spinner) toast('Loaded ✓');
+  } catch (e) {
+    toast('Error: ' + e.message, true);
+  }
+}
+
+// ── Controls ──────────────────────────────────────────────────
+document.getElementById('prevBtn').onclick    = () => { weekOff--; load(); };
+document.getElementById('nextBtn').onclick    = () => { weekOff++; load(); };
+document.getElementById('todayBtn').onclick   = () => { weekOff = 0; load(); };
+document.getElementById('refreshBtn').onclick = () => load();
+load();
+clearInterval(refreshTimer); refreshTimer = setInterval(() => load(false), REFRESH_MS);
+</script>
+</body>
+</html>
