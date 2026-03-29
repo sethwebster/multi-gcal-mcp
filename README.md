@@ -67,6 +67,29 @@ Add to your Claude Desktop config:
 
 Restart Claude Desktop after saving.
 
+### 3b. Configure Claude Code (CLI)
+
+Add to your Claude Code settings (`~/.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "multi-gcal": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/multi-gcal-mcp/packages/mcp/src/index.js"],
+      "env": {
+        "GOOGLE_CLIENT_ID": "your_client_id",
+        "GOOGLE_CLIENT_SECRET": "your_client_secret"
+      }
+    }
+  }
+}
+```
+
+Or for a specific project, add to `.claude/settings.local.json` in that project's root.
+
+Restart Claude Code after saving (`/quit` then relaunch).
+
 ### 4. Connect Your Accounts
 
 In Claude, say:
