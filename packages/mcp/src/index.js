@@ -6,10 +6,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { createServer as createHttpServer } from 'https';
-import { readFileSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
+import { createServer as createHttpServer } from 'http';
 
 import { startOAuthFlow, checkAccountHealth } from '@multi-gcal/core/auth';
 import { getAccounts, removeAccount, updateAccountLabel, getTokensFilePath, getCalendarFilters, setCalendarFilter } from '@multi-gcal/core/storage';
@@ -447,19 +444,19 @@ function err(text) {
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 
-const useHttp = process.argv.includes('--http') || !!process.env.HTTP_PORT;
-const port = parseInt(process.env.HTTP_PORT || '11976', 10);
+const useHttp = process.argv.includes('--http') || !!process.env.PORT || !!process.env.HTTP_PORT;
+const port = parseInt(process.env.PORT || process.env.HTTP_PORT || '3000', 10);
 
 if (useHttp) {
-  const certDir = join(homedir(), '.config', 'multi-gcal-mcp');
-  const tlsOptions = {
-    key: readFileSync(join(certDir, 'localhost-key.pem')),
-    cert: readFileSync(join(certDir, 'localhost-cert.pem')),
-  };
-
-  const httpServer = createHttpServer(tlsOptions, async (req, res) => {
-    console.error(`[req] ${req.method} ${req.url} Accept: ${req.headers['accept']} Content-Type: ${req.headers['content-type']}`);
+  const httpServer = createHttpServer(async (req, res) => {
+    console.error(`[req] ${req.method} ${req.url}`);
     const url = req.url?.split('?')[0];
+
+    if (req.method === 'GET' && url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"ok":true}');
+      return;
+    }
+
     if (url !== '/mcp') {
       res.writeHead(404).end('Not found');
       return;
@@ -473,8 +470,8 @@ if (useHttp) {
     await transport.handleRequest(req, res);
   });
 
-  httpServer.listen(port, '127.0.0.1', () => {
-    console.error(`[multi-gcal-mcp] HTTPS server listening on https://localhost:${port}/mcp`);
+  httpServer.listen(port, '0.0.0.0', () => {
+    console.error(`[multi-gcal-mcp] HTTP server listening on http://0.0.0.0:${port}/mcp`);
   });
 } else {
   const transport = new StdioServerTransport();

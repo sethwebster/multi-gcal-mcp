@@ -11,6 +11,20 @@ function ensureDir() {
   }
 }
 
+// Seed tokens from env var if file doesn't exist yet
+function seedFromEnv() {
+  if (!process.env.TOKENS_JSON) return;
+  ensureDir();
+  if (existsSync(TOKENS_FILE)) return; // don't overwrite existing file
+  try {
+    const parsed = JSON.parse(process.env.TOKENS_JSON);
+    writeFileSync(TOKENS_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[storage] Failed to parse TOKENS_JSON env var:', e.message);
+  }
+}
+seedFromEnv();
+
 function load() {
   ensureDir();
   if (!existsSync(TOKENS_FILE)) return { accounts: {} };
