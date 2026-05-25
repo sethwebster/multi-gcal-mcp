@@ -5,7 +5,8 @@
   "exports": {
     "./storage":  "./src/storage.js",
     "./auth":     "./src/auth.js",
-    "./calendar": "./src/calendar.js"
+    "./calendar": "./src/calendar.js",
+    "./gmail":    "./src/gmail.js"
   },
   "dependencies": {
     "googleapis": "^144.0.0"

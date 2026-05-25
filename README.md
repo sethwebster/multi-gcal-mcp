@@ -30,7 +30,9 @@ You need a Google Cloud project with Calendar API enabled and OAuth credentials.
 4. [Create OAuth credentials](https://console.cloud.google.com/apis/credentials):
    - Click **Create Credentials** > **OAuth client ID**
    - Application type: **Web application**
-   - Add authorized redirect URI: `http://localhost:4999/oauth/callback`
+   - Add authorized redirect URI(s):
+     - `http://localhost:4999/oauth/callback` for local-only auth
+     - `https://gcal-mcp.YOUR_DOMAIN.com/oauth/callback` for remote auth via Cloudflare Tunnel
 5. Copy the **Client ID** and **Client Secret** — you'll need both in the next step
 
 ### 2. Install
@@ -58,7 +60,8 @@ Add to your Claude Desktop config:
       "args": ["/ABSOLUTE/PATH/TO/multi-gcal-mcp/packages/mcp/src/index.js"],
       "env": {
         "GOOGLE_CLIENT_ID": "your_client_id",
-        "GOOGLE_CLIENT_SECRET": "your_client_secret"
+        "GOOGLE_CLIENT_SECRET": "your_client_secret",
+        "GOOGLE_REDIRECT_URI": "https://gcal-mcp.YOUR_DOMAIN.com/oauth/callback"
       }
     }
   }
@@ -79,7 +82,8 @@ Add to your Claude Code settings (`~/.claude/settings.json`):
       "args": ["/ABSOLUTE/PATH/TO/multi-gcal-mcp/packages/mcp/src/index.js"],
       "env": {
         "GOOGLE_CLIENT_ID": "your_client_id",
-        "GOOGLE_CLIENT_SECRET": "your_client_secret"
+        "GOOGLE_CLIENT_SECRET": "your_client_secret",
+        "GOOGLE_REDIRECT_URI": "https://gcal-mcp.YOUR_DOMAIN.com/oauth/callback"
       }
     }
   }
@@ -208,12 +212,11 @@ credentials-file: ~/.cloudflared/<tunnel-id>.json
 
 ingress:
   - hostname: gcal-mcp.YOUR_DOMAIN.com
-    service: https://localhost:11976
-    originRequest:
-      noTLSVerify: true
+    service: http://localhost:4999
   - service: http_status:404
 ```
 
+This forwards the public OAuth callback URL to the transient local callback server that `gcal_add_account` starts when a connection is in progress.
 ### Run as launchd Services (macOS)
 
 **MCP server** — `~/Library/LaunchAgents/com.multi-gcal-mcp.plist`:

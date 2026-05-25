@@ -8,7 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { createServer as createHttpServer } from 'http';
 
-import { startOAuthFlow, checkAccountHealth } from '@multi-gcal/core/auth';
+import { startOAuthFlow, checkAccountHealth, handleOAuthCallbackRequest, getOAuthCallbackPath } from '@multi-gcal/core/auth';
 import { getAccounts, removeAccount, updateAccountLabel, getTokensFilePath, getCalendarFilters, setCalendarFilter } from '@multi-gcal/core/storage';
 import {
   listCalendarsForAccount,
@@ -19,6 +19,11 @@ import {
   deleteEvent,
   getBusySlots,
 } from '@multi-gcal/core/calendar';
+import {
+  listMessagesForAccount,
+  searchMessagesForAccount,
+  getMessageForAccount,
+} from '@multi-gcal/core/gmail';
 
 // ─── Tool definitions ────────────────────────────────────────────────────────
 
@@ -217,6 +222,58 @@ const TOOLS = [
       properties: {
         time_min: { type: 'string', description: 'ISO 8601 start' },
         time_max: { type: 'string', description: 'ISO 8601 end' },
+      },
+    },
+  },
+  {
+    name: 'gmail_list_messages',
+    description:
+      'List Gmail messages for an account, defaulting to the inbox. Supports pagination via page_token.',
+    inputSchema: {
+      type: 'object',
+      required: ['account_id'],
+      properties: {
+        account_id: { type: 'string', description: 'Account ID from gcal_list_accounts' },
+        max_results: { type: 'number', description: 'Max messages to return (default: 10)' },
+        page_token: { type: 'string', description: 'Pagination token from a previous gmail_list_messages call' },
+        label_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional Gmail label IDs. Defaults to ["INBOX"] when omitted.',
+        },
+        include_spam_trash: { type: 'boolean', description: 'Include spam and trash folders' },
+      },
+    },
+  },
+  {
+    name: 'gmail_search_messages',
+    description:
+      'Search Gmail messages for an account using Gmail search syntax. Supports pagination via page_token.',
+    inputSchema: {
+      type: 'object',
+      required: ['account_id', 'query'],
+      properties: {
+        account_id: { type: 'string', description: 'Account ID from gcal_list_accounts' },
+        query: { type: 'string', description: 'Gmail search query, e.g. from:alice newer_than:7d' },
+        max_results: { type: 'number', description: 'Max messages to return (default: 10)' },
+        page_token: { type: 'string', description: 'Pagination token from a previous gmail_search_messages call' },
+        label_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional Gmail label IDs to restrict search' },
+        include_spam_trash: { type: 'boolean', description: 'Include spam and trash folders' },
+      },
+    },
+  },
+  {
+    name: 'gmail_get_message',
+    description: 'Get a Gmail message by ID, including headers, snippet, and decoded plain-text body when available.',
+    inputSchema: {
+      type: 'object',
+      required: ['account_id', 'message_id'],
+      properties: {
+        account_id: { type: 'string', description: 'Account ID from gcal_list_accounts' },
+        message_id: { type: 'string', description: 'Message ID from gmail_list_messages or gmail_search_messages' },
       },
     },
   },
@@ -422,6 +479,34 @@ function buildServer() {
           return ok(JSON.stringify(slots, null, 2));
         }
 
+        // ── Gmail ─────────────────────────────────────────────────────────────
+
+        case 'gmail_list_messages': {
+          const result = await listMessagesForAccount(args.account_id, {
+            maxResults: args.max_results,
+            pageToken: args.page_token,
+            labelIds: args.label_ids?.length ? args.label_ids : ['INBOX'],
+            includeSpamTrash: args.include_spam_trash,
+          });
+          return ok(JSON.stringify(result, null, 2));
+        }
+
+        case 'gmail_search_messages': {
+          const result = await searchMessagesForAccount(args.account_id, {
+            query: args.query,
+            maxResults: args.max_results,
+            pageToken: args.page_token,
+            labelIds: args.label_ids,
+            includeSpamTrash: args.include_spam_trash,
+          });
+          return ok(JSON.stringify(result, null, 2));
+        }
+
+        case 'gmail_get_message': {
+          const message = await getMessageForAccount(args.account_id, args.message_id);
+          return ok(JSON.stringify(message, null, 2));
+        }
+
         default:
           return err(`Unknown tool: ${name}`);
       }
@@ -448,12 +533,20 @@ const useHttp = process.argv.includes('--http') || !!process.env.PORT || !!proce
 const port = parseInt(process.env.PORT || process.env.HTTP_PORT || '3000', 10);
 
 if (useHttp) {
+  const oauthCallbackPath = getOAuthCallbackPath();
+
   const httpServer = createHttpServer(async (req, res) => {
     console.error(`[req] ${req.method} ${req.url}`);
     const url = req.url?.split('?')[0];
 
     if (req.method === 'GET' && url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"ok":true}');
+      return;
+    }
+
+    if (req.method === 'GET' && url === oauthCallbackPath) {
+      const response = await handleOAuthCallbackRequest(req.url || oauthCallbackPath);
+      res.writeHead(response.statusCode, { 'Content-Type': response.contentType }).end(response.body);
       return;
     }
 
